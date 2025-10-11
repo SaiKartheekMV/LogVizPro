@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+
+# Node
+node_modules/
+npm-debug.log*
+build/
+.env.local
+
+# Docker
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
