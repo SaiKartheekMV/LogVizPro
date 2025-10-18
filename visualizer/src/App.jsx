@@ -1,373 +1,302 @@
-import React, { useState, useEffect } from 'react';
-import {
-  Container,
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-  Chip,
-  Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  CircularProgress,
-  ThemeProvider,
-  createTheme,
-  CssBaseline,
-  ButtonGroup
-} from '@mui/material';
-import {
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  LineChart,
-  Line
-} from 'recharts';
-import {
-  MdActivity,
-  MdError,
-  MdWarning,
-  MdInfo,
-  MdRefresh,
-  MdFilterList,
-  MdDashboard
-} from 'react-icons/md';
+import { useState, useEffect } from 'react';
+import { io } from 'socket.io-client';
 import axios from 'axios';
+import { 
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, 
+  ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar 
+} from 'recharts';
+import './App.css';
 
-const API_URL = import.meta.env.REACT_APP_API_URL || 'http://localhost:5000';
-
-// Dark theme configuration
-const darkTheme = createTheme({
-  palette: {
-    mode: 'dark',
-    primary: {
-      main: '#2196f3',
-    },
-    secondary: {
-      main: '#f50057',
-    },
-    background: {
-      default: '#0a1929',
-      paper: '#132f4c',
-    },
-    error: {
-      main: '#f44336',
-    },
-    warning: {
-      main: '#ff9800',
-    },
-    info: {
-      main: '#2196f3',
-    },
-    success: {
-      main: '#4caf50',
-    },
-  },
-  typography: {
-    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-  },
-});
-
-const COLORS = ['#2196f3', '#f44336', '#ff9800', '#4caf50'];
+const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+const API_BASE = 'http://localhost:3001';
+const ANALYZER_BASE = 'http://localhost:8000';
 
 function App() {
   const [logs, setLogs] = useState([]);
   const [stats, setStats] = useState(null);
+  const [trends, setTrends] = useState([]);
+  const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('ALL');
+  const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 10000);
-    return () => clearInterval(interval);
+    const socket = io(API_BASE);
+    
+    socket.on('connect', () => setConnected(true));
+    socket.on('disconnect', () => setConnected(false));
+    
+    socket.on('new_log', (log) => {
+      setLogs(prev => [log, ...prev].slice(0, 100));
+      fetchStats();
+    });
+
+    fetchInitialData();
+
+    const interval = setInterval(() => {
+      fetchStats();
+      fetchTrends();
+    }, 30000);
+
+    return () => {
+      socket.disconnect();
+      clearInterval(interval);
+    };
   }, []);
 
-  const fetchData = async () => {
+  const fetchInitialData = async () => {
+    setLoading(true);
+    await Promise.all([fetchLogs(), fetchStats(), fetchTrends()]);
+    setLoading(false);
+  };
+
+  const fetchLogs = async () => {
     try {
-      setLoading(true);
-      const [logsRes, statsRes] = await Promise.all([
-        axios.get(`${API_URL}/logs?limit=100`),
-        axios.get(`${API_URL}/logs/stats`)
-      ]);
-
-      setLogs(logsRes.data.logs);
-      setStats(statsRes.data.stats);
-    } catch (error) {
-      console.error('Error fetching data:', error);
-    } finally {
-      setLoading(false);
+      const res = await axios.get(`${API_BASE}/api/logs?limit=50`);
+      setLogs(res.data.data);
+    } catch (err) {
+      console.error('Error fetching logs:', err);
     }
   };
 
-  const filteredLogs = filter === 'ALL'
-    ? logs
-    : logs.filter(log => log.level === filter);
-
-  const levelCounts = stats ? stats.reduce((acc, item) => {
-    acc[item._id] = item.count;
-    return acc;
-  }, {}) : {};
-
-  const pieData = stats ? stats.map(item => ({
-    name: item._id,
-    value: item.count
-  })) : [];
-
-  const getIcon = (level) => {
-    const iconProps = { size: 20 };
-    switch (level) {
-      case 'ERROR':
-        return <MdError {...iconProps} style={{ color: '#f44336' }} />;
-      case 'WARNING':
-        return <MdWarning {...iconProps} style={{ color: '#ff9800' }} />;
-      case 'INFO':
-        return <MdInfo {...iconProps} style={{ color: '#2196f3' }} />;
-      default:
-        return <MdActivity {...iconProps} style={{ color: '#9e9e9e' }} />;
+  const fetchStats = async () => {
+    try {
+      const res = await axios.get(`${ANALYZER_BASE}/api/analytics/summary?hours=24`);
+      setStats(res.data.data);
+    } catch (err) {
+      console.error('Error fetching stats:', err);
     }
   };
 
-  const getLevelChip = (level) => {
-    const colorMap = {
-      ERROR: 'error',
-      WARNING: 'warning',
-      INFO: 'info',
-      DEBUG: 'default'
+  const fetchTrends = async () => {
+    try {
+      const res = await axios.get(`${ANALYZER_BASE}/api/analytics/trends?hours=24`);
+      setTrends(res.data.data);
+    } catch (err) {
+      console.error('Error fetching trends:', err);
+    }
+  };
+
+  const filteredLogs = filter === 'all' ? logs : logs.filter(log => log.level === filter);
+  const pieData = stats ? Object.entries(stats.byLevel).map(([name, value]) => ({ name, value })) : [];
+  const serviceData = stats ? Object.entries(stats.byService).slice(0, 5).map(([name, value]) => ({ name, value })) : [];
+
+  const getLevelColor = (level) => {
+    const colors = {
+      error: '#ef4444',
+      warn: '#f59e0b',
+      info: '#3b82f6',
+      debug: '#8b5cf6'
     };
-    return <Chip label={level} color={colorMap[level] || 'default'} size="small" />;
+    return colors[level] || '#6b7280';
   };
+
+  if (loading) {
+    return (
+      <div className="loading-screen">
+        <div className="spinner"></div>
+        <p>Loading LogVizPro...</p>
+      </div>
+    );
+  }
 
   return (
-    <ThemeProvider theme={darkTheme}>
-      <CssBaseline />
-      <Box sx={{ minHeight: '100vh', bgcolor: 'background.default', py: 4 }}>
-        <Container maxWidth="xl">
-          {/* Header */}
-          <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Box>
-              <Typography variant="h3" component="h1" sx={{ fontWeight: 700, color: 'primary.main', mb: 1 }}>
-                <MdDashboard style={{ verticalAlign: 'middle', marginRight: '10px' }} />
-                LogViz Pro
-              </Typography>
-              <Typography variant="subtitle1" color="text.secondary">
-                Real-time Log Analytics Dashboard
-              </Typography>
-            </Box>
-            <Button
-              variant="contained"
-              startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <MdRefresh />}
-              onClick={fetchData}
-              disabled={loading}
-            >
-              Refresh
-            </Button>
-          </Box>
+    <div className="app">
+      {/* Header */}
+      <header className="header">
+        <div className="header-content">
+          <div className="logo-section">
+            <h1>📊 LogVizPro</h1>
+            <span className={`status-badge ${connected ? 'connected' : 'disconnected'}`}>
+              <span className="status-dot"></span>
+              {connected ? 'Live' : 'Disconnected'}
+            </span>
+          </div>
+          <p className="subtitle">Real-time Log Monitoring & Analytics</p>
+        </div>
+      </header>
 
-          {/* Stats Cards */}
-          <Grid container spacing={3} sx={{ mb: 4 }}>
-            <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ bgcolor: 'background.paper', height: '100%' }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                      <Typography color="text.secondary" variant="subtitle2" gutterBottom>
-                        Total Logs
-                      </Typography>
-                      <Typography variant="h4" component="div" sx={{ fontWeight: 700 }}>
-                        {logs.length}
-                      </Typography>
-                    </Box>
-                    <MdActivity size={48} style={{ color: '#2196f3', opacity: 0.8 }} />
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
+      {/* Stats Cards */}
+      {stats && (
+        <div className="stats-grid">
+          <div className="stat-card">
+            <div className="stat-icon">📊</div>
+            <div className="stat-content">
+              <h3>Total Logs</h3>
+              <p className="stat-value">{stats.totalLogs.toLocaleString()}</p>
+              <span className="stat-label">Last 24 hours</span>
+            </div>
+          </div>
+          
+          <div className="stat-card error">
+            <div className="stat-icon">🔴</div>
+            <div className="stat-content">
+              <h3>Error Rate</h3>
+              <p className="stat-value">{stats.errorRate}%</p>
+              <span className="stat-label">{stats.byLevel.error || 0} errors detected</span>
+            </div>
+          </div>
+          
+          <div className="stat-card">
+            <div className="stat-icon">🏢</div>
+            <div className="stat-content">
+              <h3>Services</h3>
+              <p className="stat-value">{Object.keys(stats.byService).length}</p>
+              <span className="stat-label">Active services</span>
+            </div>
+          </div>
 
-            <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ bgcolor: 'background.paper', height: '100%' }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                      <Typography color="text.secondary" variant="subtitle2" gutterBottom>
-                        Errors
-                      </Typography>
-                      <Typography variant="h4" component="div" sx={{ fontWeight: 700, color: 'error.main' }}>
-                        {levelCounts['ERROR'] || 0}
-                      </Typography>
-                    </Box>
-                    <MdError size={48} style={{ color: '#f44336', opacity: 0.8 }} />
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
+          <div className="stat-card">
+            <div className="stat-icon">⚠️</div>
+            <div className="stat-content">
+              <h3>Warnings</h3>
+              <p className="stat-value">{stats.byLevel.warn || 0}</p>
+              <span className="stat-label">Last 24 hours</span>
+            </div>
+          </div>
+        </div>
+      )}
 
-            <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ bgcolor: 'background.paper', height: '100%' }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                      <Typography color="text.secondary" variant="subtitle2" gutterBottom>
-                        Warnings
-                      </Typography>
-                      <Typography variant="h4" component="div" sx={{ fontWeight: 700, color: 'warning.main' }}>
-                        {levelCounts['WARNING'] || 0}
-                      </Typography>
-                    </Box>
-                    <MdWarning size={48} style={{ color: '#ff9800', opacity: 0.8 }} />
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
+      {/* Charts Section */}
+      <div className="charts-section">
+        <div className="chart-card">
+          <div className="chart-header">
+            <h2>📈 Log Trends</h2>
+            <span className="chart-subtitle">Last 24 hours</span>
+          </div>
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={trends}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <XAxis 
+                dataKey="time" 
+                stroke="#94a3b8"
+                tick={{ fontSize: 12 }}
+              />
+              <YAxis stroke="#94a3b8" />
+              <Tooltip 
+                contentStyle={{ 
+                  backgroundColor: '#1e293b', 
+                  border: '1px solid #334155',
+                  borderRadius: '8px'
+                }}
+              />
+              <Legend />
+              <Line type="monotone" dataKey="total" stroke="#3b82f6" strokeWidth={2} name="Total Logs" />
+              <Line type="monotone" dataKey="errors" stroke="#ef4444" strokeWidth={2} name="Errors" />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
 
-            <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ bgcolor: 'background.paper', height: '100%' }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                      <Typography color="text.secondary" variant="subtitle2" gutterBottom>
-                        Info
-                      </Typography>
-                      <Typography variant="h4" component="div" sx={{ fontWeight: 700, color: 'info.main' }}>
-                        {levelCounts['INFO'] || 0}
-                      </Typography>
-                    </Box>
-                    <MdInfo size={48} style={{ color: '#2196f3', opacity: 0.8 }} />
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
+        <div className="chart-card">
+          <div className="chart-header">
+            <h2>🥧 Log Distribution</h2>
+            <span className="chart-subtitle">By severity level</span>
+          </div>
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie 
+                data={pieData} 
+                dataKey="value" 
+                nameKey="name" 
+                cx="50%" 
+                cy="50%" 
+                outerRadius={90}
+                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+              >
+                {pieData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={getLevelColor(entry.name)} />
+                ))}
+              </Pie>
+              <Tooltip 
+                contentStyle={{ 
+                  backgroundColor: '#1e293b', 
+                  border: '1px solid #334155',
+                  borderRadius: '8px'
+                }}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
 
-          {/* Charts */}
-          <Grid container spacing={3} sx={{ mb: 4 }}>
-            <Grid item xs={12} md={6}>
-              <Card sx={{ bgcolor: 'background.paper' }}>
-                <CardContent>
-                  <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-                    Log Level Distribution
-                  </Typography>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie
-                        data={pieData}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                        outerRadius={100}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {pieData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-            </Grid>
+        <div className="chart-card full-width">
+          <div className="chart-header">
+            <h2>🏢 Top Services</h2>
+            <span className="chart-subtitle">By log volume</span>
+          </div>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={serviceData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <XAxis dataKey="name" stroke="#94a3b8" />
+              <YAxis stroke="#94a3b8" />
+              <Tooltip 
+                contentStyle={{ 
+                  backgroundColor: '#1e293b', 
+                  border: '1px solid #334155',
+                  borderRadius: '8px'
+                }}
+              />
+              <Bar dataKey="value" fill="#3b82f6" radius={[8, 8, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
 
-            <Grid item xs={12} md={6}>
-              <Card sx={{ bgcolor: 'background.paper' }}>
-                <CardContent>
-                  <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-                    Log Count by Level
-                  </Typography>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={pieData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#37474f" />
-                      <XAxis dataKey="name" stroke="#90a4ae" />
-                      <YAxis stroke="#90a4ae" />
-                      <Tooltip
-                        contentStyle={{ backgroundColor: '#132f4c', border: 'none', borderRadius: '8px' }}
-                      />
-                      <Bar dataKey="value" fill="#2196f3" radius={[8, 8, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
+      {/* Logs Section */}
+      <div className="logs-section">
+        <div className="logs-header">
+          <h2>📋 Recent Logs</h2>
+          <div className="filters">
+            {['all', 'info', 'warn', 'error', 'debug'].map(level => (
+              <button 
+                key={level}
+                className={`filter-btn ${filter === level ? 'active' : ''}`}
+                onClick={() => setFilter(level)}
+              >
+                {level.toUpperCase()}
+                {level !== 'all' && stats && (
+                  <span className="badge">{stats.byLevel[level] || 0}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
 
-          {/* Filters */}
-          <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 2 }}>
-            <MdFilterList size={24} />
-            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-              Filter by Level:
-            </Typography>
-            <ButtonGroup variant="outlined">
-              {['ALL', 'INFO', 'WARNING', 'ERROR'].map((level) => (
-                <Button
-                  key={level}
-                  variant={filter === level ? 'contained' : 'outlined'}
-                  onClick={() => setFilter(level)}
-                >
-                  {level}
-                </Button>
+        <div className="logs-container">
+          {filteredLogs.length === 0 ? (
+            <div className="empty-state">
+              <p>📭 No logs found</p>
+              <span>Send some logs to see them here!</span>
+            </div>
+          ) : (
+            <div className="logs-list">
+              {filteredLogs.map((log, idx) => (
+                <div key={idx} className={`log-item ${log.level}`}>
+                  <div className="log-header-row">
+                    <span className={`log-badge ${log.level}`}>
+                      {log.level.toUpperCase()}
+                    </span>
+                    <span className="log-service">🏢 {log.service}</span>
+                    <span className="log-time">
+                      🕐 {new Date(log.timestamp).toLocaleString()}
+                    </span>
+                  </div>
+                  <p className="log-message">{log.message}</p>
+                </div>
               ))}
-            </ButtonGroup>
-          </Box>
+            </div>
+          )}
+        </div>
+      </div>
 
-          {/* Logs Table */}
-          <Card sx={{ bgcolor: 'background.paper' }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, mb: 2 }}>
-                Recent Logs ({filteredLogs.length})
-              </Typography>
-              <TableContainer component={Paper} sx={{ maxHeight: 600, bgcolor: 'background.default' }}>
-                <Table stickyHeader>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 700, bgcolor: 'background.paper' }}>Level</TableCell>
-                      <TableCell sx={{ fontWeight: 700, bgcolor: 'background.paper' }}>Message</TableCell>
-                      <TableCell sx={{ fontWeight: 700, bgcolor: 'background.paper' }}>Source</TableCell>
-                      <TableCell sx={{ fontWeight: 700, bgcolor: 'background.paper' }}>Timestamp</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {filteredLogs.map((log, index) => (
-                      <TableRow
-                        key={index}
-                        sx={{ '&:hover': { bgcolor: 'action.hover' } }}
-                      >
-                        <TableCell>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            {getIcon(log.level)}
-                            {getLevelChip(log.level)}
-                          </Box>
-                        </TableCell>
-                        <TableCell>{log.message}</TableCell>
-                        <TableCell>
-                          <Chip label={log.source} size="small" variant="outlined" />
-                        </TableCell>
-                        <TableCell sx={{ color: 'text.secondary' }}>
-                          {new Date(log.timestamp).toLocaleString()}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </CardContent>
-          </Card>
-        </Container>
-      </Box>
-    </ThemeProvider>
+      {/* Footer */}
+      <footer className="footer">
+        <p>Made with ❤️ by Sai Kartheek Mulukutla</p>
+        <p className="footer-links">
+          <span>LogVizPro v1.0.0</span>
+          <span>•</span>
+          <span>{logs.length} logs loaded</span>
+        </p>
+      </footer>
+    </div>
   );
 }
 

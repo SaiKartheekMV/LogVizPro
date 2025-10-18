@@ -1,96 +1,100 @@
+from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
-import pandas as pd
-from datetime import datetime, timedelta
+import redis
 import os
-from dotenv import load_dotenv
-import time
+from datetime import datetime, timedelta
+from collections import Counter
 
-load_dotenv()
+app = FastAPI(title="LogVizPro Analyzer")
 
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://mongodb:27017/')
-client = MongoClient(MONGO_URI)
-db = client['logviz_db']
-logs_collection = db['logs']
-analytics_collection = db['analytics']
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-def analyze_logs():
-    print(f"[{datetime.now()}] Running log analysis...")
-    
+# DB connections
+mongo_client = MongoClient(os.getenv('MONGO_URI'))
+db = mongo_client.logvizpro
+logs_collection = db.logs
+
+redis_client = redis.from_url(os.getenv('REDIS_URL'), decode_responses=True)
+
+@app.get("/health")
+def health():
+    return {"status": "healthy", "service": "log-analyzer"}
+
+@app.get("/api/analytics/summary")
+def get_summary(hours: int = Query(24, ge=1, le=168)):
     try:
-        # Get logs from last 24 hours
-        time_threshold = datetime.utcnow() - timedelta(hours=24)
-        logs = list(logs_collection.find({"timestamp": {"$gte": time_threshold}}))
+        # Calculate time range
+        start_time = datetime.utcnow() - timedelta(hours=hours)
         
-        if not logs:
-            print("No logs to analyze")
-            return
+        # Query logs
+        logs = list(logs_collection.find({
+            "timestamp": {"$gte": start_time.isoformat()}
+        }))
         
-        df = pd.DataFrame(logs)
+        total_logs = len(logs)
         
-        # Analysis 1: Count by level
-        level_counts = df['level'].value_counts().to_dict()
+        # Count by level
+        levels = Counter([log.get('level', 'info') for log in logs])
         
-        # Analysis 2: Count by source
-        source_counts = df['source'].value_counts().to_dict()
+        # Count by service
+        services = Counter([log.get('service', 'unknown') for log in logs])
         
-        # Analysis 3: Error patterns
-        error_logs = df[df['level'] == 'ERROR']
-        error_patterns = {}
-        if not error_logs.empty:
-            error_patterns = error_logs['message'].value_counts().head(10).to_dict()
+        # Calculate error rate
+        error_count = levels.get('error', 0) + levels.get('fatal', 0)
+        error_rate = (error_count / total_logs * 100) if total_logs > 0 else 0
         
-        # Analysis 4: Hourly trends
-        df['hour'] = pd.to_datetime(df['timestamp']).dt.hour
-        hourly_counts = df.groupby('hour').size().to_dict()
-        
-        # Save analytics
-        analytics_entry = {
-            "timestamp": datetime.utcnow(),
-            "period": "24h",
-            "total_logs": len(logs),
-            "level_distribution": level_counts,
-            "source_distribution": source_counts,
-            "top_errors": error_patterns,
-            "hourly_trends": hourly_counts
+        return {
+            "success": True,
+            "data": {
+                "totalLogs": total_logs,
+                "errorRate": round(error_rate, 2),
+                "timeRange": f"{hours}h",
+                "byLevel": dict(levels),
+                "byService": dict(services.most_common(10)),
+                "topErrors": [
+                    {"message": log['message'][:100], "service": log.get('service')} 
+                    for log in logs if log.get('level') in ['error', 'fatal']
+                ][:5]
+            }
         }
-        
-        analytics_collection.insert_one(analytics_entry)
-        print(f"Analysis complete. Total logs analyzed: {len(logs)}")
-        
     except Exception as e:
-        print(f"Error during analysis: {str(e)}")
+        return {"success": False, "error": str(e)}
 
-def detect_anomalies():
-    """Detect unusual patterns in logs"""
+@app.get("/api/analytics/trends")
+def get_trends(hours: int = Query(24)):
     try:
-        # Get recent error rate
-        time_threshold = datetime.utcnow() - timedelta(hours=1)
-        recent_logs = logs_collection.count_documents({"timestamp": {"$gte": time_threshold}})
-        recent_errors = logs_collection.count_documents({
-            "timestamp": {"$gte": time_threshold},
-            "level": "ERROR"
-        })
+        start_time = datetime.utcnow() - timedelta(hours=hours)
         
-        if recent_logs > 0:
-            error_rate = (recent_errors / recent_logs) * 100
-            if error_rate > 20:  # Alert threshold
-                print(f"⚠️ HIGH ERROR RATE DETECTED: {error_rate:.2f}%")
-                
-                # Save anomaly
-                db['anomalies'].insert_one({
-                    "timestamp": datetime.utcnow(),
-                    "type": "high_error_rate",
-                    "value": error_rate,
-                    "threshold": 20
-                })
-    
+        logs = list(logs_collection.find({
+            "timestamp": {"$gte": start_time.isoformat()}
+        }).sort("timestamp", 1))
+        
+        # Group by hour
+        hourly_data = {}
+        for log in logs:
+            hour = log['timestamp'][:13]  # YYYY-MM-DDTHH
+            if hour not in hourly_data:
+                hourly_data[hour] = {"total": 0, "errors": 0}
+            hourly_data[hour]["total"] += 1
+            if log.get('level') in ['error', 'fatal']:
+                hourly_data[hour]["errors"] += 1
+        
+        trends = [
+            {"time": k, "total": v["total"], "errors": v["errors"]}
+            for k, v in sorted(hourly_data.items())
+        ]
+        
+        return {"success": True, "data": trends}
     except Exception as e:
-        print(f"Error detecting anomalies: {str(e)}")
+        return {"success": False, "error": str(e)}
 
-if __name__ == '__main__':
-    print("Log Analyzer Service Started")
-    
-    while True:
-        analyze_logs()
-        detect_anomalies()
-        time.sleep(300)  # Run every 5 minutes
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv('PORT', 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)

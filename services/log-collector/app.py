@@ -1,110 +1,80 @@
 from flask import Flask, request, jsonify
+from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from pymongo import MongoClient
-from datetime import datetime
+import redis
 import os
-from dotenv import load_dotenv
-
-load_dotenv()
+from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-# MongoDB Connection
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://mongodb:27017/')
-client = MongoClient(MONGO_URI)
-db = client['logviz_db']
-logs_collection = db['logs']
+# DB connections
+mongo_client = MongoClient(os.getenv('MONGO_URI'))
+db = mongo_client.logvizpro
+logs_collection = db.logs
+
+redis_client = redis.from_url(os.getenv('REDIS_URL'), decode_responses=True)
 
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({"status": "healthy", "service": "log-collector"}), 200
 
-@app.route('/logs', methods=['POST'])
-def collect_logs():
+@app.route('/api/logs', methods=['POST'])
+def create_log():
     try:
-        data = request.get_json()
-        
-        # Validate required fields
-        if not data or 'message' not in data:
-            return jsonify({"error": "Missing 'message' field"}), 400
-        
-        # Prepare log entry
+        data = request.json
         log_entry = {
-            "message": data.get('message'),
-            "level": data.get('level', 'INFO'),
-            "source": data.get('source', 'unknown'),
-            "timestamp": datetime.utcnow(),
-            "metadata": data.get('metadata', {})
+            "level": data.get("level", "info"),
+            "message": data.get("message"),
+            "service": data.get("service"),
+            "timestamp": data.get("timestamp", datetime.utcnow().isoformat()),
+            "metadata": data.get("metadata", {})
         }
         
-        # Insert into MongoDB
+        # Insert to MongoDB
         result = logs_collection.insert_one(log_entry)
+        log_entry['_id'] = str(result.inserted_id)
         
-        return jsonify({
-            "status": "success",
-            "log_id": str(result.inserted_id)
-        }), 201
+        # Cache in Redis (recent 100 logs)
+        redis_client.lpush("recent_logs", str(log_entry))
+        redis_client.ltrim("recent_logs", 0, 99)
         
+        # Emit via WebSocket
+        socketio.emit('new_log', log_entry)
+        
+        return jsonify({"success": True, "data": log_entry}), 201
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route('/logs', methods=['GET'])
+@app.route('/api/logs', methods=['GET'])
 def get_logs():
     try:
-        # Pagination
-        page = int(request.args.get('page', 1))
-        limit = int(request.args.get('limit', 50))
-        skip = (page - 1) * limit
-        
-        # Filters
         level = request.args.get('level')
-        source = request.args.get('source')
+        service = request.args.get('service')
+        limit = int(request.args.get('limit', 100))
         
         query = {}
         if level:
             query['level'] = level
-        if source:
-            query['source'] = source
+        if service:
+            query['service'] = service
         
-        # Fetch logs
-        logs = list(logs_collection.find(query).sort('timestamp', -1).skip(skip).limit(limit))
+        logs = list(logs_collection.find(query).sort("timestamp", -1).limit(limit))
         
         # Convert ObjectId to string
         for log in logs:
             log['_id'] = str(log['_id'])
-            log['timestamp'] = log['timestamp'].isoformat()
         
-        total = logs_collection.count_documents(query)
-        
-        return jsonify({
-            "logs": logs,
-            "total": total,
-            "page": page,
-            "pages": (total + limit - 1) // limit
-        }), 200
-        
+        return jsonify({"success": True, "data": logs}), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route('/logs/stats', methods=['GET'])
-def get_stats():
-    try:
-        pipeline = [
-            {
-                "$group": {
-                    "_id": "$level",
-                    "count": {"$sum": 1}
-                }
-            }
-        ]
-        
-        stats = list(logs_collection.aggregate(pipeline))
-        
-        return jsonify({"stats": stats}), 200
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+@socketio.on('connect')
+def handle_connect():
+    emit('connected', {'message': 'Connected to LogVizPro'})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    port = int(os.getenv('PORT', 3001))
+    socketio.run(app, host='0.0.0.0', port=port, debug=True)

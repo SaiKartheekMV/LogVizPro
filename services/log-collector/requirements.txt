@@ -3,3 +3,7 @@ Flask-CORS
 pandas
 pymongo
 python-dotenv
+flask-socketio
+redis
+python-socketio
+eventlet
