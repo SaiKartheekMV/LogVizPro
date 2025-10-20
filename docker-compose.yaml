@@ -6,50 +6,108 @@ services:
       - "6379:6379"
     networks:
       - logviz_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
 
   log-collector:
-    build: ./services/log-collector
+    build: 
+      context: ./services/log-collector
+      dockerfile: Dockerfile
     container_name: logvizpro_collector
     environment:
       PORT: 3001
-      MONGO_URI: mongodb://host.docker.internal:27017/logvizpro  # ✅ Access host MongoDB
+      MONGO_URI: mongodb://host.docker.internal:27017/logvizpro
       REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-MySecureLogVizProSecret2024}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      FLASK_ENV: development
+      PYTHONUNBUFFERED: 1
     ports:
       - "3001:3001"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     networks:
       - logviz_net
     extra_hosts:
-      - "host.docker.internal:host-gateway"  # ✅ Required for Linux
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    volumes:
+      - ./services/log-collector:/app
+    command: python app.py
 
   log-analyzer:
-    build: ./services/log-analyzer
+    build:
+      context: ./services/log-analyzer
+      dockerfile: Dockerfile
     container_name: logvizpro_analyzer
     environment:
       PORT: 8000
-      MONGO_URI: mongodb://host.docker.internal:27017/logvizpro  # ✅ Access host MongoDB
+      MONGO_URI: mongodb://host.docker.internal:27017/logvizpro
       REDIS_URL: redis://redis:6379
+      PYTHONUNBUFFERED: 1
     ports:
       - "8000:8000"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     networks:
       - logviz_net
     extra_hosts:
-      - "host.docker.internal:host-gateway"  # ✅ Required for Linux
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    volumes:
+      - ./services/log-analyzer:/app
+    command: python analyzer.py
+
+  ml-analyzer:
+    build:
+      context: ./services/ml-analyzer
+      dockerfile: Dockerfile
+    container_name: logvizpro_ml
+    environment:
+      PORT: 8001
+      MONGO_URI: mongodb://host.docker.internal:27017/logvizpro
+      REDIS_URL: redis://redis:6379
+      PYTHONUNBUFFERED: 1
+    ports:
+      - "8001:8001"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - logviz_net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    volumes:
+      - ./services/ml-analyzer:/app
+    command: python detector.py
 
   visualizer:
-    build: ./visualizer
+    build:
+      context: ./visualizer
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://localhost:3001
+        VITE_ANALYZER_URL: http://localhost:8000
+        VITE_ML_ANALYZER_URL: http://localhost:8001
     container_name: logvizpro_frontend
     ports:
       - "5173:80"
     depends_on:
       - log-collector
       - log-analyzer
+      - ml-analyzer
     networks:
       - logviz_net
+    restart: unless-stopped
 
 networks:
   logviz_net:
     driver: bridge
+    name: logvizpro_network

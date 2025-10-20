@@ -7,3 +7,7 @@ flask-socketio
 redis
 python-socketio
 eventlet
+pyjwt
+bcrypt
+requests
+python-engineio

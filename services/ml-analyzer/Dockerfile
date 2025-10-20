@@ -16,10 +16,10 @@ COPY . .
 # Convert line endings (Windows compatibility)
 RUN find . -type f -name "*.py" -exec dos2unix {} \;
 
-EXPOSE 3001
+EXPOSE 8001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:3001/health || exit 1
+  CMD curl -f http://localhost:8001/health || exit 1
 
-CMD ["python", "-u", "app.py"]
+CMD ["python", "-u", "detector.py"]
