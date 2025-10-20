@@ -1,4 +1,4 @@
-# 🚀 LogViz Pro
+# 🌟 Welcome to **LogViz Pro**
 ### **Smart Log Analyzer & Visualizer using Dockerized Microservices**
 
 <p align="center">
@@ -15,7 +15,7 @@
 
 ---
 
-## 🔍 Overview
+## 🔍 **Overview**
 <p align="center">
   <img src="https://user-images.githubusercontent.com/placeholder/overview-doodle.png" alt="Overview Doodle" width="400" />
 </p>
@@ -25,7 +25,7 @@ It uses a **modular microservices architecture** and **Dockerized deployment**, 
 
 ---
 
-## ✨ Key Features
+## ✨ **Key Features**
 <p align="center">
   <img src="https://user-images.githubusercontent.com/placeholder/features-doodle.png" alt="Features Doodle" width="400" />
 </p>
@@ -40,7 +40,7 @@ It uses a **modular microservices architecture** and **Dockerized deployment**, 
 
 ---
 
-## 🧩 Project Structure
+## 🧩 **Project Structure**
 <p align="center">
   <img src="https://user-images.githubusercontent.com/placeholder/structure-doodle.png" alt="Project Structure Doodle" width="600" />
 </p>
@@ -72,7 +72,7 @@ LogVizPro/
 
 ---
 
-## 🛠️ Tech Stack
+## 🛠️ **Tech Stack**
 <p align="center">
   <img src="https://user-images.githubusercontent.com/placeholder/tech-stack-doodle.png" alt="Tech Stack Doodle" width="500" />
 </p>
@@ -88,7 +88,7 @@ LogVizPro/
 
 ---
 
-## 🚀 Getting Started
+## 🚀 **Getting Started**
 
 ### 1️⃣ Clone the Repository
 ```bash
@@ -106,7 +106,7 @@ Open your browser at 👉 [http://localhost:5173](http://localhost:5173)
 
 ---
 
-## 🧭 Implementation Phases
+## 🧭 **Implementation Phases**
 <p align="center">
   <img src="https://user-images.githubusercontent.com/placeholder/phases-doodle.png" alt="Implementation Phases Doodle" width="500" />
 </p>
@@ -123,7 +123,7 @@ Open your browser at 👉 [http://localhost:5173](http://localhost:5173)
 
 ---
 
-## 🌟 Future Enhancements
+## 🌟 **Future Enhancements**
 - 🧠 AI-powered anomaly detection (enhanced models)
 - 📈 Predictive analytics dashboard
 - 🔒 Role-based authentication
@@ -131,7 +131,7 @@ Open your browser at 👉 [http://localhost:5173](http://localhost:5173)
 
 ---
 
-## 📌 Why "LogViz Pro"?
+## 📌 **Why "LogViz Pro"?**
 <p align="center">
   <img src="https://user-images.githubusercontent.com/placeholder/why-logviz-doodle.png" alt="Why LogViz Pro Doodle" width="400" />
 </p>
@@ -144,7 +144,7 @@ Short, meaningful, and powerful.
 
 ---
 
-## 🤝 Contribution
+## 🤝 **Contribution**
 <p align="center">
   <img src="https://user-images.githubusercontent.com/placeholder/contribution-doodle.png" alt="Contribution Doodle" width="400" />
 </p>
@@ -156,3 +156,9 @@ Contributions are welcome!
 3. Commit → `git commit -m "Add new feature"`  
 4. Push → `git push origin feature/YourFeature`  
 5. Open a Pull Request
+
+---
+
+<p align="center">
+  <img src="https://user-images.githubusercontent.com/placeholder/footer-banner.png" alt="Footer Banner" width="800" />
+</p>
